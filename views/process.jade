@@ -1,0 +1,16 @@
+extends layout
+
+block content
+  div
+    h1(id="title-h1" data-status=process.status)= process.status
+
+    p= process.log
+
+    a(href= link_url)= link_title
+
+    hr
+
+  div
+    textarea(readonly="true" placeholder="Rendered sitemap..." style="width:100%; resize:vertical; min-height: 400px;")= sitemap
+
+  script(src="/javascripts/processing.js")
