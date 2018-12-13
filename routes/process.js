@@ -4,10 +4,10 @@ const DOMParser = require('dom-parser');
 const https = require('https');
 const _ = require('lodash');
 const fs = require('fs');
-const fileName = `render/out.html`;
 let inProgress = 0;
 let panicStop = false;
 let pl = { status: 'ready', log: '' };
+const pageSize = 500;
 
 // Uppercase Text
 const UC = function (v) {
@@ -15,21 +15,81 @@ const UC = function (v) {
 };
 
 const onCrawled = (links) => {
-  let html = '';
-  html += `<ul>\n`;
-  links.map((link) => {
-    if (link.title === '') {
-      link.title = link.url.replace('https://www.geekwrapped.com/', '').replace(/[\/-]/g, ' ').replace(/\b([a-z])/g, UC);
-      if (link.title === '') {
-        link.title = 'Home page';
-      }
-    }
-    html += `  <li><a class="bodylink" href="${link.url}">${link.title}</a></li>\n`;
-  });
-  html += `</ul>\n`;
-  fs.writeFile(fileName, html, function (err) {
-    if (err) throw err;
-  });
+  const linksPages = _.chunk(links, pageSize);
+
+  for (let i = 0; i < linksPages.length; i+=1) {
+	  const fileName = `render/out-${i}.html`;
+      const page = linksPages[i];
+	  let html = '';
+	  html += `<ul>\n`;
+	  page.map((link) => {
+		  if (link.title === '') {
+			  link.title = link.url.replace('https://www.geekwrapped.com/', '').replace(/[\/-]/g, ' ').replace(/\b([a-z])/g, UC);
+			  if (link.title === '') {
+				  link.title = 'Home page';
+			  }
+		  }
+		  html += `  <li><a class="bodylink" href="${link.url}">${link.title}</a></li>\n`;
+	  });
+	  html += `</ul>\n`;
+
+	  let count = linksPages.length;
+	  let base_url = '/content';
+	  let currpage = i + 1;
+	  let pageDown = currpage - 1;
+	  let pageUp = currpage + 1;
+	  let pagination = '';
+	  let pageUrl = base_url + "?page=";
+
+	  if (count >= 1) {
+		  pagination += '<nav><ul class="pagination">';
+		  if (pageDown > 0) {
+			  let currPageUrl = pageUrl + pageDown;
+			  pagination += '<li class="page-item">';
+			  pagination += `<a class="page-link" href="${currPageUrl}">Previous</a>\n`;
+			  pagination += '</li>';
+		  } else {
+			  pagination += '<li class="page-item disabled">';
+			  pagination += '<a class="page-link" href="#">Previous</a>';
+			  pagination += '</li>';
+		  }
+		  for (let x = 0; x < count; x+=1) {
+		    let pageNum = x + 1;
+			  if (currpage != pageNum) {
+				  let currPageUrl = pageUrl + pageNum;
+				  pagination += '<li class="page-item">';
+				  pagination += `<a class="page-link" href="${currPageUrl}">${pageNum}</a>\n`;
+				  pagination += '</li>';
+			  } else {
+				  let currPageUrl = pageUrl + pageNum;
+				  pagination += '<li class="page-item active">';
+				  pagination += `<a class="page-link" href="${currPageUrl}">${pageNum}</a>\n`;
+				  pagination += '</li>';
+			  }
+		  }
+		  if (pageUp < count) {
+			  let currPageUrl = pageUrl + pageUp;
+			  pagination += '<li class="page-item">';
+			  pagination += `<a class="page-link" href="${currPageUrl}">Next</a>\n`;
+			  pagination += '</li>';
+		  } else {
+			  pagination += '<li class="page-item disabled">';
+			  pagination += '<a class="page-link" href="#">Next</a>';
+			  pagination += '</li>';
+		  }
+		  pagination += '</nav></ul>';
+	  }
+
+	  html += pagination;
+
+	  fs.writeFile(fileName, html, function (err) {
+		  if (err) throw err;
+	  });
+  }
+
+  pl = processLog();
+  pl.pageCount = linksPages.length;
+  processLog(pl);
 };
 
 const crawlLink = (link) => {
@@ -39,7 +99,7 @@ const crawlLink = (link) => {
     linkResp.on('data', (chunk) => {
       linkData += chunk;
     });
-    
+
     linkResp.on('end', () => {
       if (panicStop) {
         inProgress = 0;
@@ -81,7 +141,7 @@ const start = async () => {
   pl.log = 'Download geekwrapped Sitemap';
   processLog(pl);
   return new Promise((resolve, reject) => {
-    
+
     https.get('https://www.geekwrapped.com/sitemap.xml', (resp) => {
       let data = '';
       // A chunk of data has been recieved.
@@ -105,12 +165,12 @@ const start = async () => {
             });
             return node;
           });
-          
+
           if (links.length > 0) {
             pl = processLog();
             pl.log = 'Start Crawling';
             processLog(pl);
-            
+
             const linksPages = _.chunk(links, 10);
             const totalPages = linksPages.length;
             let currentPage = 0;
@@ -177,7 +237,8 @@ const start = async () => {
   });
 };
 
-const getHtmlSitemap = () => {
+const getHtmlSitemap = (pageNum = 0) => {
+  const fileName = `render/out-${pageNum}.html`;
   let html = '';
   if (fs.existsSync(fileName)) {
     html = fs.readFileSync(fileName);
@@ -188,7 +249,7 @@ const getHtmlSitemap = () => {
 /* GET process listing. */
 router.get('/', function (req, res, next) {
   pl = processLog();
-  
+
   if (!_.isNil(pl)) {
     if (_.isNil(pl.status) || pl.status === 'ready') {
       try {
@@ -211,20 +272,30 @@ router.get('/', function (req, res, next) {
       res.render('process', { process: pl, link_url: '/process/stop/', link_title: 'Stop crawling', sitemap: '' });
     } else if (pl.status === 'finished')  {
       // res.send('Process finished');
-      res.render('process', { process: pl, link_url: '/process/restart/', link_title: 'Restart', sitemap: getHtmlSitemap() });
+
+		const sitemap = [];
+		if (_.isNil(pl.pageCount)){
+			pl.pageCount = 1;
+		}
+		for (let i = 0; i < pl.pageCount; i+=1) {
+			sitemap.push(getHtmlSitemap(i));
+		}
+		res.render('process', { process: pl, link_url: '/process/restart/', link_title: 'Restart', sitemap: sitemap });
+
+      //res.render('process', { process: pl, link_url: '/process/restart/', link_title: 'Restart', sitemap: getHtmlSitemap() });
     }
   } else {
     // No found...
     pl = processLog({ status: 'ready', log: '' });
     res.redirect('/process/');
   }
-  
+
   console.log('pl', pl);
-  
+
 });
 
 router.get('/restart/', function (req, res, next) {
-  
+
   pl = processLog();
   if (!_.isNil(pl) && !_.isNil(pl.status)) {
     pl.status = 'ready';
@@ -235,14 +306,14 @@ router.get('/restart/', function (req, res, next) {
 });
 
 router.get('/stop/', function (req, res, next) {
-  
+
   pl = processLog();
   if (!_.isNil(pl) && !_.isNil(pl.status)) {
     pl.status = 'finished';
     processLog(pl);
   }
   res.redirect('/process/');
-  
+
 });
 
 // router.get('/status/', function (req, res, next) {
