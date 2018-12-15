@@ -11,6 +11,9 @@ block content
     hr
 
   div
-    textarea(readonly="true" placeholder="Rendered sitemap..." style="width:100%; resize:vertical; min-height: 400px;")= sitemap
+    p='Copy & Past sitemap HTML code for each page'
+    each item, i in sitemap
+      h2='Page ' + (i + 1)
+      textarea(readonly="true" placeholder="Rendered sitemap..." style="width:100%; resize:vertical; min-height: 400px;")= item
 
   script(src="/javascripts/processing.js")
